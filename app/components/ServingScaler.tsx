@@ -47,7 +47,7 @@ export default function ServingScaler({ onChange }: Props) {
           {p.label}
         </button>
       ))}
-      <span className="text-xs text-gray-400 ml-1">(recipes are written for 4 — default ×1½ serves 6)</span>
+      <span className="text-xs text-gray-400 ml-1">Daily recipe serving size is 6</span>
     </div>
   );
 }

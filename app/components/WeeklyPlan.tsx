@@ -1,32 +1,136 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Recipe } from "@/app/lib/recipes";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Recipe } from "@/app/lib/recipes";
 import MealCard from "./MealCard";
 import ServingScaler from "./ServingScaler";
 
 type CookedMap = Record<string, "cooked" | "skipped">;
 
 type Props = {
-  initialRecipes: Recipe[];
   weekKey: string;
   weekLabel: string;
-  initialCooked: CookedMap;
 };
 
-export default function WeeklyPlan({ initialRecipes, weekKey, weekLabel, initialCooked }: Props) {
-  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
-  const [userScale, setUserScale] = useState(1.0);
+function cacheKey(weekKey: string) {
+  return `mealplan-${weekKey}`;
+}
 
-  // When a meal is shuffled the API returns the new recipe ID — we need
-  // to fetch updated recipe data. For simplicity we reload the page.
-  function handleShuffle(_position: number, _newId: string) {
-    window.location.reload();
+function saveCache(weekKey: string, recipes: Recipe[], cooked: CookedMap) {
+  try {
+    sessionStorage.setItem(cacheKey(weekKey), JSON.stringify({ recipes, cooked }));
+  } catch {}
+}
+
+export default function WeeklyPlan({ weekKey, weekLabel }: Props) {
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [cooked, setCooked] = useState<CookedMap>({});
+  const [loading, setLoading] = useState(true);
+  const [userScale, setUserScale] = useState(1.0);
+  // ref so callbacks always see the latest value without stale closure
+  const cookedRef = useRef<CookedMap>({});
+  const recipesRef = useRef<Recipe[]>([]);
+
+  useEffect(() => {
+    cookedRef.current = cooked;
+  }, [cooked]);
+
+  useEffect(() => {
+    recipesRef.current = recipes;
+  }, [recipes]);
+
+  useEffect(() => {
+    // Restore from sessionStorage if available (persists across page navigations)
+    try {
+      const cached = sessionStorage.getItem(cacheKey(weekKey));
+      if (cached) {
+        const { recipes: r, cooked: c } = JSON.parse(cached) as { recipes: Recipe[]; cooked: CookedMap };
+        setRecipes(r);
+        setCooked(c ?? {});
+        setLoading(false);
+        return;
+      }
+    } catch {}
+
+    // First load: fetch from API
+    fetch(`/api/plan?week=${weekKey}`)
+      .then((r) => r.json())
+      .then(async (data) => {
+        const ids: string[] = data.plan?.recipeIds ?? [];
+        const cookedMap: CookedMap = data.plan?.cooked ?? {};
+
+        const fetched = await Promise.all(
+          ids.map((id) =>
+            fetch(`/api/recipe/${id}`)
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null)
+          )
+        );
+        const valid = fetched.filter(Boolean) as Recipe[];
+
+        setRecipes(valid);
+        setCooked(cookedMap);
+        saveCache(weekKey, valid, cookedMap);
+      })
+      .finally(() => setLoading(false));
+  }, [weekKey]);
+
+  async function handleShuffle(position: number, source: "blogspot" | "allrecipes") {
+    const res = await fetch("/api/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ week: weekKey, position, source }),
+    });
+    if (!res.ok) throw new Error("shuffle failed");
+    const data = await res.json();
+    const newId: string = data.plan.recipeIds[position];
+
+    const newRecipe: Recipe = await fetch(`/api/recipe/${newId}`).then((r) => r.json());
+
+    setRecipes((prev) => {
+      const updated = [...prev];
+      updated[position] = newRecipe;
+      saveCache(weekKey, updated, cookedRef.current);
+      return updated;
+    });
   }
 
-  const handleScaleChange = useCallback((scale: number) => {
-    setUserScale(scale);
-  }, []);
+  async function handleBan(recipeId: string, position: number, source: "blogspot" | "allrecipes") {
+    const res = await fetch("/api/ban", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipeId, week: weekKey, position, source }),
+    });
+    if (!res.ok) throw new Error("ban failed");
+    const data = await res.json();
+    const newRecipe: Recipe = data.recipe;
+
+    setRecipes((prev) => {
+      const updated = [...prev];
+      updated[position] = newRecipe;
+      saveCache(weekKey, updated, cookedRef.current);
+      return updated;
+    });
+  }
+
+  function handleStatusChange(recipeId: string, status: "cooked" | "skipped" | "none") {
+    // Call the cooked API
+    fetch("/api/cooked", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ week: weekKey, recipeId, status }),
+    });
+
+    setCooked((prev) => {
+      const updated = { ...prev };
+      if (status === "none") delete updated[recipeId];
+      else updated[recipeId] = status;
+      saveCache(weekKey, recipesRef.current, updated);
+      return updated;
+    });
+  }
+
+  const handleScaleChange = useCallback((scale: number) => setUserScale(scale), []);
 
   return (
     <div className="space-y-6">
@@ -38,25 +142,30 @@ export default function WeeklyPlan({ initialRecipes, weekKey, weekLabel, initial
           href="/shopping-list"
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-full transition-colors shadow"
         >
-          🛒 Shopping List
+          Shopping List
         </a>
       </div>
 
       <ServingScaler onChange={handleScaleChange} />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {recipes.map((recipe, i) => (
-          <MealCard
-            key={recipe.id}
-            recipe={recipe}
-            position={i}
-            weekKey={weekKey}
-            initialStatus={(initialCooked[recipe.id] as "cooked" | "skipped" | "none") ?? "none"}
-            userScale={userScale}
-            onShuffle={handleShuffle}
-          />
-        ))}
-      </div>
+      {loading ? (
+        <p className="text-gray-400 text-center py-16">Loading this week&apos;s meals...</p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {recipes.map((recipe, i) => (
+            <MealCard
+              key={recipe.id}
+              recipe={recipe}
+              position={i}
+              status={cooked[recipe.id] ?? "none"}
+              userScale={userScale}
+              onShuffle={() => handleShuffle(i, recipe.source)}
+              onBan={() => handleBan(recipe.id, i, recipe.source)}
+              onStatusChange={(s) => handleStatusChange(recipe.id, s)}
+            />
+          ))}
+        </div>
+      )}
 
       <p className="text-xs text-gray-400 text-center pt-2">
         Recipes 1–3 from{" "}

@@ -8,62 +8,55 @@ type CookedStatus = "cooked" | "skipped" | "none";
 type Props = {
   recipe: Recipe;
   position: number;
-  weekKey: string;
-  initialStatus: CookedStatus;
+  status: CookedStatus;
   userScale: number;
-  onShuffle: (position: number, newRecipeId: string) => void;
+  onShuffle: () => Promise<void>;
+  onBan: () => Promise<void>;
+  onStatusChange: (status: CookedStatus) => void;
 };
 
-export default function MealCard({ recipe, position, weekKey, initialStatus, userScale, onShuffle }: Props) {
-  const [status, setStatus] = useState<CookedStatus>(initialStatus);
-  const [shuffling, setShuffling] = useState(false);
+const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-  // Combine the default recipe scale (to hit 6 servings) with the user's manual multiplier
-  const recipeScale = defaultScale(recipe);   // e.g. 1.5 for blogspot (4-serving) recipes
-  const totalScale = recipeScale * userScale;
+export default function MealCard({ recipe, position, status, userScale, onShuffle, onBan, onStatusChange }: Props) {
+  const [busy, setBusy] = useState<"shuffle" | "ban" | null>(null);
 
-  async function handleShuffle() {
-    setShuffling(true);
-    try {
-      const res = await fetch("/api/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ week: weekKey, position, source: recipe.source }),
-      });
-      if (!res.ok) throw new Error("shuffle failed");
-      const data = await res.json();
-      onShuffle(position, data.plan.recipeIds[position]);
-    } catch {
-      alert("Couldn't shuffle right now — try again.");
-    } finally {
-      setShuffling(false);
-    }
-  }
-
-  async function handleStatus(next: CookedStatus) {
-    const newStatus = status === next ? "none" : next;
-    setStatus(newStatus);
-    await fetch("/api/cooked", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ week: weekKey, recipeId: recipe.id, status: newStatus }),
-    });
-  }
-
-  const dayLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  const totalScale = defaultScale(recipe) * userScale;
   const isMuted = status === "cooked" || status === "skipped";
+
+  async function doShuffle() {
+    setBusy("shuffle");
+    try { await onShuffle(); } catch { alert("Couldn't shuffle — try again."); }
+    finally { setBusy(null); }
+  }
+
+  async function doBan() {
+    if (!confirm("Remove this recipe permanently so it never appears again?")) return;
+    setBusy("ban");
+    try { await onBan(); } catch { alert("Couldn't remove — try again."); }
+    finally { setBusy(null); }
+  }
+
+  function toggleStatus(next: CookedStatus) {
+    onStatusChange(status === next ? "none" : next);
+  }
 
   return (
     <div
       className={`rounded-2xl border p-5 shadow-sm flex flex-col gap-3 transition-opacity ${
         isMuted ? "opacity-50" : "opacity-100"
-      } ${status === "cooked" ? "bg-emerald-50 border-emerald-200" : status === "skipped" ? "bg-gray-50 border-gray-200" : "bg-white border-gray-200"}`}
+      } ${
+        status === "cooked"
+          ? "bg-emerald-50 border-emerald-200"
+          : status === "skipped"
+          ? "bg-gray-50 border-gray-200"
+          : "bg-white border-gray-200"
+      }`}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-0.5">
-            {dayLabels[position]}
+            {DAY_LABELS[position]}
           </p>
           <h2 className={`text-lg font-bold text-gray-800 leading-snug ${isMuted ? "line-through" : ""}`}>
             {recipe.title}
@@ -81,13 +74,13 @@ export default function MealCard({ recipe, position, weekKey, initialStatus, use
       </div>
 
       {/* Ingredient list */}
-      <ul className="text-sm text-gray-700 space-y-0.5 list-disc list-inside">
+      <ul className="text-sm text-gray-700 space-y-0.5 list-disc list-inside flex-1">
         {recipe.ingredients.map((ing, i) => (
           <li key={i}>{scaleIngredient(ing, totalScale)}</li>
         ))}
       </ul>
 
-      {/* Footer actions */}
+      {/* Primary actions */}
       <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-100">
         <a
           href={recipe.url}
@@ -100,7 +93,7 @@ export default function MealCard({ recipe, position, weekKey, initialStatus, use
 
         <div className="ml-auto flex gap-2">
           <button
-            onClick={() => handleStatus("cooked")}
+            onClick={() => toggleStatus("cooked")}
             className={`text-xs px-3 py-1 rounded-full border font-medium transition-colors ${
               status === "cooked"
                 ? "bg-emerald-600 text-white border-emerald-600"
@@ -110,7 +103,7 @@ export default function MealCard({ recipe, position, weekKey, initialStatus, use
             ✓ Cooked
           </button>
           <button
-            onClick={() => handleStatus("skipped")}
+            onClick={() => toggleStatus("skipped")}
             className={`text-xs px-3 py-1 rounded-full border font-medium transition-colors ${
               status === "skipped"
                 ? "bg-gray-500 text-white border-gray-500"
@@ -120,14 +113,23 @@ export default function MealCard({ recipe, position, weekKey, initialStatus, use
             Skip
           </button>
           <button
-            onClick={handleShuffle}
-            disabled={shuffling}
+            onClick={doShuffle}
+            disabled={busy !== null}
             className="text-xs px-3 py-1 rounded-full border border-gray-300 bg-white text-gray-600 hover:border-emerald-500 font-medium transition-colors disabled:opacity-40"
           >
-            {shuffling ? "..." : "⟳ Shuffle"}
+            {busy === "shuffle" ? "..." : "⟳ Shuffle"}
           </button>
         </div>
       </div>
+
+      {/* Remove permanently */}
+      <button
+        onClick={doBan}
+        disabled={busy !== null}
+        className="text-xs text-red-400 hover:text-red-600 text-left disabled:opacity-40 transition-colors"
+      >
+        {busy === "ban" ? "Removing..." : "✕ Remove this recipe permanently"}
+      </button>
     </div>
   );
 }

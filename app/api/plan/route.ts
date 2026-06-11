@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPlan, setPlan, WeekPlan } from "@/app/lib/planStore";
+import { getPlan, setPlan, getBanned, WeekPlan } from "@/app/lib/planStore";
 import { getBlogspotRecipes, getAllrecipesRecipes } from "@/app/lib/recipeLoader";
 import { getISOWeekKey } from "@/app/lib/week";
 
@@ -12,8 +12,9 @@ async function getOrCreatePlan(weekKey: string): Promise<WeekPlan> {
   const existing = await getPlan(weekKey);
   if (existing) return existing;
 
-  const blogspot = getBlogspotRecipes();
-  const allrecipes = getAllrecipesRecipes();
+  const banned = new Set(await getBanned());
+  const blogspot = getBlogspotRecipes().filter((r) => !banned.has(r.id));
+  const allrecipes = getAllrecipesRecipes().filter((r) => !banned.has(r.id));
 
   const picked = [
     ...pickRandom(blogspot, 3).map((r) => r.id),
@@ -40,9 +41,10 @@ export async function POST(req: NextRequest) {
   };
 
   const plan = await getOrCreatePlan(week);
+  const banned = new Set(await getBanned());
   const pool = source === "blogspot" ? getBlogspotRecipes() : getAllrecipesRecipes();
   const currentIds = new Set(plan.recipeIds);
-  const candidates = pool.filter((r) => !currentIds.has(r.id));
+  const candidates = pool.filter((r) => !currentIds.has(r.id) && !banned.has(r.id));
 
   if (candidates.length === 0) {
     return NextResponse.json({ error: "No more recipes to shuffle" }, { status: 400 });

@@ -6,6 +6,8 @@ import type { Recipe } from "@/app/lib/recipes";
 import ShoppingList from "@/app/components/ShoppingList";
 import ServingScaler from "@/app/components/ServingScaler";
 
+type CookedMap = Record<string, "cooked" | "skipped">;
+
 export default function ShoppingListPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
@@ -15,16 +17,42 @@ export default function ShoppingListPage() {
   const weekLabel = formatWeekRange(weekKey);
 
   useEffect(() => {
-    fetch(`/api/plan?week=${weekKey}`)
-      .then((r) => r.json())
-      .then(async (data) => {
+    async function load() {
+      // Prefer sessionStorage — it has the latest cooked status without an extra API call
+      try {
+        const cached = sessionStorage.getItem(`mealplan-${weekKey}`);
+        if (cached) {
+          const { recipes: r, cooked } = JSON.parse(cached) as { recipes: Recipe[]; cooked: CookedMap };
+          // Exclude meals the user has marked as skipped
+          setRecipes(r.filter((recipe) => cooked[recipe.id] !== "skipped"));
+          setLoading(false);
+          return;
+        }
+      } catch {}
+
+      // Fallback: fetch from API (e.g. on first load or different device)
+      try {
+        const data = await fetch(`/api/plan?week=${weekKey}`).then((r) => r.json());
         const ids: string[] = data.plan?.recipeIds ?? [];
+        const cookedMap: CookedMap = data.plan?.cooked ?? {};
+
         const fetched = await Promise.all(
-          ids.map((id) => fetch(`/api/recipe/${id}`).then((r) => r.json()).catch(() => null))
+          ids.map((id) =>
+            fetch(`/api/recipe/${id}`)
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null)
+          )
         );
-        setRecipes(fetched.filter(Boolean) as Recipe[]);
-      })
-      .finally(() => setLoading(false));
+        const valid = (fetched.filter(Boolean) as Recipe[]).filter(
+          (recipe) => cookedMap[recipe.id] !== "skipped"
+        );
+        setRecipes(valid);
+      } catch {}
+
+      setLoading(false);
+    }
+
+    load();
   }, [weekKey]);
 
   const handleScaleChange = useCallback((s: number) => setUserScale(s), []);
@@ -54,7 +82,9 @@ export default function ShoppingListPage() {
         {loading ? (
           <p className="text-gray-400 text-center py-12">Loading ingredients...</p>
         ) : recipes.length === 0 ? (
-          <p className="text-gray-400 text-center py-12">No recipes found for this week.</p>
+          <p className="text-gray-400 text-center py-12">
+            No meals remaining — all were skipped or none found for this week.
+          </p>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
             <ShoppingList recipes={recipes} userScale={userScale} />

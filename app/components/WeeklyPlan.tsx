@@ -99,7 +99,7 @@ export default function WeeklyPlan({ weekKey, weekLabel }: Props) {
     const res = await fetch("/api/ban", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recipeId, week: weekKey, position, source }),
+      body: JSON.stringify({ recipeId, week: weekKey, position, source, currentRecipeIds: recipesRef.current.map((r) => r.id) }),
     });
     if (!res.ok) throw new Error("ban failed");
     const data = await res.json();

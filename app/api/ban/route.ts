@@ -4,11 +4,12 @@ import { getBlogspotRecipes, getAllrecipesRecipes } from "@/app/lib/recipeLoader
 import { getISOWeekKey } from "@/app/lib/week";
 
 export async function POST(req: NextRequest) {
-  const { recipeId, week, position, source } = await req.json() as {
+  const { recipeId, week, position, source, currentRecipeIds } = await req.json() as {
     recipeId: string;
     week: string;
     position: number;
     source: "blogspot" | "allrecipes";
+    currentRecipeIds: string[];
   };
 
   const weekKey = week ?? getISOWeekKey();
@@ -17,10 +18,8 @@ export async function POST(req: NextRequest) {
   await banRecipe(recipeId);
   const banned = new Set(await getBanned());
 
-  const plan = await getPlan(weekKey);
-  if (!plan) {
-    return NextResponse.json({ error: "No plan for this week" }, { status: 404 });
-  }
+  // Use stored plan if available; fall back to what the client reported
+  const plan = (await getPlan(weekKey)) ?? { recipeIds: currentRecipeIds, cooked: {} };
 
   const currentIds = new Set(plan.recipeIds);
   const pool = source === "blogspot" ? getBlogspotRecipes() : getAllrecipesRecipes();

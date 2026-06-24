@@ -2,15 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Recipe } from "@/app/lib/recipes";
+import { getISOWeekKey, formatWeekRange } from "@/app/lib/week";
 import MealCard from "./MealCard";
 import ServingScaler from "./ServingScaler";
 
 type CookedMap = Record<string, "cooked" | "skipped">;
-
-type Props = {
-  weekKey: string;
-  weekLabel: string;
-};
 
 function cacheKey(weekKey: string) {
   return `mealplan-${weekKey}`;
@@ -22,7 +18,9 @@ function saveCache(weekKey: string, recipes: Recipe[], cooked: CookedMap) {
   } catch {}
 }
 
-export default function WeeklyPlan({ weekKey, weekLabel }: Props) {
+export default function WeeklyPlan() {
+  const weekKey = getISOWeekKey();
+  const weekLabel = formatWeekRange(weekKey);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [cooked, setCooked] = useState<CookedMap>({});
   const [loading, setLoading] = useState(true);

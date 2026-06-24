@@ -24,7 +24,10 @@ export function getWeekDateRange(weekKey: string): { start: Date; end: Date } {
 }
 
 export function formatWeekRange(weekKey: string): string {
-  const { start, end } = getWeekDateRange(weekKey);
-  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", timeZone: "UTC" };
-  return `${start.toLocaleDateString("en-US", opts)} – ${end.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
+  const { start } = getWeekDateRange(weekKey);
+  // Show Thu → Mon (the 5 dinner nights), not the full Thu–Wed window
+  const monday = new Date(start);
+  monday.setUTCDate(start.getUTCDate() + 4);
+  const opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" };
+  return `${start.toLocaleDateString("en-US", opts)} – ${monday.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
 }

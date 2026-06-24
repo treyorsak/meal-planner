@@ -15,7 +15,7 @@ type Props = {
   onStatusChange: (status: CookedStatus) => void;
 };
 
-const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const DAY_LABELS = ["Thursday", "Friday", "Saturday", "Sunday", "Monday"];
 
 export default function MealCard({ recipe, position, status, userScale, onShuffle, onBan, onStatusChange }: Props) {
   const [busy, setBusy] = useState<"shuffle" | "ban" | null>(null);

@@ -1,21 +1,26 @@
+// Week runs Thursday → Wednesday. Key format: "2026-THU-0619" (the Thursday date).
+
 export function getISOWeekKey(date = new Date()): string {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+  // Roll back to the most recent Thursday (UTC day 4)
+  const dayOfWeek = d.getUTCDay(); // 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
+  const daysBack = (dayOfWeek - 4 + 7) % 7;
+  d.setUTCDate(d.getUTCDate() - daysBack);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${year}-THU-${month}${day}`;
 }
 
 export function getWeekDateRange(weekKey: string): { start: Date; end: Date } {
-  const [year, weekStr] = weekKey.split("-W");
-  const week = parseInt(weekStr, 10);
-  const jan4 = new Date(Date.UTC(parseInt(year, 10), 0, 4));
-  const dayOfWeek = jan4.getUTCDay() || 7;
-  const monday = new Date(jan4);
-  monday.setUTCDate(jan4.getUTCDate() - dayOfWeek + 1 + (week - 1) * 7);
-  const friday = new Date(monday);
-  friday.setUTCDate(monday.getUTCDate() + 4);
-  return { start: monday, end: friday };
+  // Parse "2026-THU-0619" → Thursday Jun 19 2026
+  const [year, , monthDay] = weekKey.split("-");
+  const month = parseInt(monthDay.slice(0, 2), 10) - 1;
+  const day = parseInt(monthDay.slice(2, 4), 10);
+  const start = new Date(Date.UTC(parseInt(year, 10), month, day));
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 6); // following Wednesday
+  return { start, end };
 }
 
 export function formatWeekRange(weekKey: string): string {
